@@ -16,20 +16,21 @@ int descriptor_height = IMAGE_HEIGHT;
 
 int main(int argc, char const *argv[])
 {
-    if (argc < 5)
-    {
-        std::cout<<"Usage: ./tensorrt_demo <model_type> <model_path> <image_0_path> <image_0_path>"<<std::endl;
-        return -1;
-    }
+    // if (argc < 5)
+    // {
+    //     std::cout<<"Usage: ./tensorrt_demo <model_type> <model_path> <image_0_path> <image_0_path>"<<std::endl;
+    //     return -1;
+    // }
     // 1. load the model
     std::shared_ptr<Interface> net_ptr;
-    std::string model_type = argv[1];
+    std::string model_type = "SuperPoint";
+    std::string model_path = "/home/zc/code/learned_features_inference-tensorRT/weight/superpoint.trt";
     if (model_type == "alike")
     {
         descriptor_dim = 64;
         descriptor_width = IMAGE_WIDTH;
         descriptor_height = IMAGE_HEIGHT;
-        net_ptr = std::make_shared<Interface>("alike", argv[2], true,
+        net_ptr = std::make_shared<Interface>("alike", model_path, true,
                                               cv::Size(IMAGE_WIDTH,IMAGE_HEIGHT),
                                               descriptor_width, descriptor_height, descriptor_dim);
     }
@@ -38,7 +39,7 @@ int main(int argc, char const *argv[])
         descriptor_dim = 512;
         descriptor_width = IMAGE_WIDTH / 8;
         descriptor_height = IMAGE_HEIGHT / 8;
-        net_ptr = std::make_shared<Interface>("d2net", argv[2], true,
+        net_ptr = std::make_shared<Interface>("d2net", model_path, true,
                                               cv::Size(IMAGE_WIDTH,IMAGE_HEIGHT),
                                               descriptor_width, descriptor_height, descriptor_dim);
     }
@@ -47,7 +48,7 @@ int main(int argc, char const *argv[])
         descriptor_dim = 256;
         descriptor_width = IMAGE_WIDTH / 8;
         descriptor_height = IMAGE_HEIGHT / 8;
-        net_ptr = std::make_shared<Interface>("SuperPoint", argv[2], true,
+        net_ptr = std::make_shared<Interface>("SuperPoint", model_path, true,
                                               cv::Size(IMAGE_WIDTH,IMAGE_HEIGHT),
                                               descriptor_width, descriptor_height, descriptor_dim, false);
     }
@@ -56,7 +57,7 @@ int main(int argc, char const *argv[])
         descriptor_dim = 128;
         descriptor_width = IMAGE_WIDTH;
         descriptor_height = IMAGE_HEIGHT;
-        net_ptr = std::make_shared<Interface>("disk", argv[2], true,
+        net_ptr = std::make_shared<Interface>("disk", model_path, true,
                                               cv::Size(IMAGE_WIDTH,IMAGE_HEIGHT),
                                               descriptor_width, descriptor_height, descriptor_dim);
     }
@@ -65,7 +66,7 @@ int main(int argc, char const *argv[])
         descriptor_dim = 64;
         descriptor_width = IMAGE_WIDTH / 8;
         descriptor_height = IMAGE_HEIGHT / 8;
-        net_ptr = std::make_shared<Interface>("xfeat", argv[2], true,
+        net_ptr = std::make_shared<Interface>("xfeat", model_path, true,
                                               cv::Size(IMAGE_WIDTH,IMAGE_HEIGHT),
                                               descriptor_width, descriptor_height, descriptor_dim);
     }
@@ -76,8 +77,80 @@ int main(int argc, char const *argv[])
     }
 
     // 2. load the images
-    std::string img_0_path = argv[3];
-    std::string img_1_path = argv[4];
+    const std::string ts_file    = "/home/zc/data/recording_2020-03-24_17-36-22_stereo_images_undistorted/recording_2020-03-24_17-36-22/times.txt";
+    const std::string img_folder = "/home/zc/data/recording_2020-03-24_17-36-22_stereo_images_undistorted/recording_2020-03-24_17-36-22/undistorted_images/cam0";
+
+    // —— 1. 读取文件，解析第一列时间戳 —— 
+    std::ifstream fin(ts_file);
+    if (!fin.is_open()) {
+        std::cerr << "无法打开时间戳文件: " << ts_file << "\n";
+        return -1;
+    }
+    std::vector<uint64_t> timestamps;
+    std::string line;
+    while (std::getline(fin, line)) {
+        if (line.empty() || line[0]=='#') continue;
+        std::istringstream iss(line);
+        uint64_t ts; double t_sec, depth;
+        if (!(iss >> ts >> t_sec >> depth)) {
+            std::cerr << "文件格式错误，无法解析: " << line << "\n";
+            continue;
+        }
+        timestamps.push_back(ts);
+    }
+    fin.close();
+    if (timestamps.empty()) {
+        std::cerr << "没有读到任何时间戳。\n";
+        return -1;
+    }
+
+    // —— 2. （可选）排序，保证升序 —— 
+    std::sort(timestamps.begin(), timestamps.end());
+
+    // —— 3. 遍历并显示图像 —— 
+    std::cout << "共读取到 " << timestamps.size() << " 帧时间戳。\n";
+    for(int i = 0; i < timestamps.size(); i++)
+    {
+        const uint64_t ts = timestamps[i];
+        std::cout<<"ts:"<<ts<<std::endl;
+        // 拼出文件名：<img_folder>/<ts>.png
+        std::string img_path = img_folder + "/" + std::to_string(ts) + ".png";
+        cv::Mat image = cv::imread(img_path);
+        std::cout<<"image.cols():"<<image.cols<<std::endl;
+        std::cout<<"image.rows():"<<image.rows<<std::endl;
+        if (image.empty()) {
+            std::cerr << "读取失败: "  << std::endl;
+            continue;  // 或者报错退出
+          }
+        cv::resize(image, image, cv::Size(IMAGE_WIDTH, IMAGE_HEIGHT));
+        cv::imshow("image", image);
+
+        std::vector<cv::KeyPoint> key_points;
+        cv::Mat score_map = cv::Mat(IMAGE_HEIGHT, IMAGE_WIDTH, CV_32FC1), \
+                desc_map = cv::Mat(descriptor_height, descriptor_width, CV_32FC(descriptor_dim));
+        cv::Mat desc;
+        auto start = std::chrono::system_clock::now();
+        //    for (int i = 0;i < 500; i ++)
+            {
+                net_ptr->run(image, score_map, desc_map);
+            }
+            auto end = std::chrono::system_clock::now();
+        std::cout<<"mean cost: "<<std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.f / 500.f <<" ms"<<std::endl;
+        key_points = nms(score_map, 500, 0.01, 16, cv::Mat());
+        desc = bilinear_interpolation(image.cols, image.rows, desc_map, key_points);
+        for (auto& kp : key_points)
+        {
+            cv::circle(image, kp.pt, 1, cv::Scalar(0, 0, 255), -1);
+        }
+        cv::imshow("key_points", image);
+        cv::waitKey(10);
+    }
+    return 0;
+
+
+    std::string img_0_path;
+    std::string img_1_path;
+    
     cv::Mat image = cv::imread(img_0_path);
     cv::Mat image2 = cv::imread(img_1_path);
     cv::resize(image, image, cv::Size(IMAGE_WIDTH, IMAGE_HEIGHT));

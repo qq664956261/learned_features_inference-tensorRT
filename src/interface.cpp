@@ -46,8 +46,8 @@ Interface::Interface(std::string type, const std::string& modelPath, bool isGPU,
     }
 
     // Allocate memory for the output tensor
-    cudaMalloc(&buffers[1], inputSize.width * inputSize.height * sizeof(float));
-    cudaMalloc(&buffers[2], descriptor_width * descriptor_height * descriptor_dim * sizeof(float));
+    cudaMalloc(&buffers[2], inputSize.width * inputSize.height * sizeof(float));
+    cudaMalloc(&buffers[1], descriptor_width * descriptor_height * descriptor_dim * sizeof(float));
 
     // context->setTensorAddress("input", buffers[0]);
     // context->setTensorAddress("score", buffers[1]);
@@ -118,13 +118,13 @@ for (int b = 0; b < nb; ++b) {
     //context->enqueueV3(stream);
         // stream 是提前创建好的 cudaStream_t
 
-    context->setBindingDimensions(0, nvinfer1::Dims4{1, C, height, width});
+    context->setBindingDimensions(inputIndex, nvinfer1::Dims4{1, C, height, width});
 
     // 2. 拷贝输入到 GPU
     size_t in_bytes = C * height * width * sizeof(float);
     //cudaMemcpyAsync(buffers[0], tmp_buffer, in_bytes, cudaMemcpyHostToDevice, stream);
-    cudaMalloc(&buffers[scoreIndex],  width * height * sizeof(float));
-    cudaMalloc(&buffers[descIndex],  descriptor_width * descriptor_height * descriptor_dim * sizeof(float));
+    // cudaMalloc(&buffers[scoreIndex],  width * height * sizeof(float));
+    // cudaMalloc(&buffers[descIndex],  descriptor_width * descriptor_height * descriptor_dim * sizeof(float));
     std::cout<<"descriptor_width:"<<descriptor_width<<std::endl;
     std::cout<<"descriptor_height:"<<descriptor_height<<std::endl;
     std::cout<<"descriptor_dim:"<<descriptor_dim<<std::endl;
